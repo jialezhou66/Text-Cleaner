@@ -75,6 +75,7 @@
           </div>
           <div class="flex items-center gap-2">
             <button id="pasteBtn" type="button" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10">从剪贴板粘贴</button>
+            <button id="undoBtn" type="button" disabled class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-zinc-200 dark:disabled:hover:text-zinc-400">撤回</button>
             <button id="clearBtn" type="button" class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-zinc-200">清空</button>
           </div>
         </div>
@@ -101,14 +102,14 @@
       var inputEl = document.getElementById("inputText");
       var outputEl = document.getElementById("outputText");
       var toastEl = document.getElementById("toast");
-      var toastTimer, hasPipeline = false, inputSnapshot = "", aiDecorations = [];
+      var toastTimer, hasPipeline = false, inputSnapshot = "", aiDecorations = [], history = [];
       var CN_NUM = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
       var PREFIX_RES = [
         /^(#{1,6}\s+)/, /^(>\s?)/, /^([-*+•●○▪►▶·]\s+)/, /^(\[[ xX]\]\s+)/,
         /^(?:第?[0-9０-９]+|[ivxlcdmIVXLCDM]+)[.)、]\s*/, /^[（(][0-9０-９]+[）)]\s*/,
         /^[A-Za-z][.)]\s*/, /^[一二三四五六七八九十百千]+[、.．]\s*/
       ];
-      var KEYWORD_RE = /(?:问题|答案|原因|措施|建议|备注|说明|结论|背景|目标|步骤|要点|标题|内容|方法|分析|总结|定义|特点|优点|缺点|注意|提示|案例|示例)[0-9]{0,2}[：:]|(?:\b(?:Step|STEP)\s*[0-9]{1,2}\b)|(?:\b[QA]\s*[0-9]{0,2}\s*[:.：、)])/g;
+      var KEYWORD_RE = /(?:问题|答案|背景|目标|步骤|总结|备注|结论|分析|建议|注意|提示|案例|示例)[0-9]{0,2}[：:]|(?:\b(?:Step|STEP)\s*[0-9]{1,2}\b)/g;
       var BTN = "inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-px hover:border-slate-300 hover:shadow dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10";
       var BTN_PRIMARY = "inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-zinc-200";
 
@@ -122,6 +123,57 @@
       function isBlankLine(line) { return line.replace(/[ \t\u3000]/g, "") === ""; }
       function looksLikeBlockStart(line) {
         return /^(#{1,6}\s|[-*+•●○▪►▶]\s|\d+[.)、]\s|[（(]\d+[）)]\s|>\s|```)/.test(line);
+      }
+
+      function isTitleHeading(s) {
+        s = String(s || "").replace(/[:：]\s*$/, "").trim();
+        if (s.length < 2 || s.length > 70) return false;
+        if (/[.!?。！？,，;；]/.test(s)) return false;
+        var words = s.split(/\s+/).filter(Boolean);
+        if (!words.length || words.length > 12) return false;
+        if (words.length === 1) return /^(?:[A-Z][A-Za-z'’-]{1,24}|[A-Z]{2,8}|[\u4e00-\u9fff]{2,16})$/.test(words[0]);
+        var small = /^(?:a|an|the|of|in|on|to|for|and|&|or|as|at|by)$/i;
+        var real = 0, caps = 0, i, w;
+        for (i = 0; i < words.length; i++) {
+          w = words[i].replace(/^[^A-Za-z\u4e00-\u9fff]+|[^A-Za-z\u4e00-\u9fff]+$/g, "");
+          if (!w) continue;
+          if (small.test(w) && i > 0) continue;
+          real += 1;
+          if (/^[A-Z\u4e00-\u9fff]/.test(w)) caps += 1;
+        }
+        return real > 0 && caps >= real;
+      }
+
+      function looksLikeHeading(line) {
+        var s = trimLine(String(line || ""));
+        if (!s) return false;
+        if (looksLikeBlockStart(s)) return true;
+        if (/^(?:#{1,6}\s+|第[一二三四五六七八九十百千0-9]+[、.．\s]|[（(]\d+[）)]\s*\S|\d+[.)、]\s+\S)/.test(s)) return true;
+        if (/[:：]$/.test(s) && isTitleHeading(s)) return true;
+        if (/^[A-Z\u4e00-\u9fff][^,\n]{0,60}[:：]\s+[A-Z\u4e00-\u9fff]/.test(s) && isTitleHeading(s.split(/[:：]/)[0])) return true;
+        if (!/[.!?。！？]$/.test(s) && isTitleHeading(s)) return true;
+        return false;
+      }
+
+      function unwrapLines(text) {
+        return normalizeNewlines(text).split(/\n{2,}/).map(function (block) {
+          var rows = block.split("\n").map(function (l) { return l.replace(/[ \t]+$/g, ""); });
+          if (rows.length <= 1) return rows.join("");
+          var out = rows[0].replace(/^\s+/, "");
+          for (var i = 1; i < rows.length; i++) {
+            var curr = rows[i].replace(/^\s+/, "");
+            if (!curr) continue;
+            var last = out.split("\n").pop();
+            if (looksLikeHeading(curr) || looksLikeHeading(last) || looksLikeBlockStart(curr)) {
+              out += "\n" + curr;
+              continue;
+            }
+            var joiner = /[-–—]$/.test(last) ? "" : " ";
+            var hard = /[.!?…:;"'”’）)\]】》」』。！？：；、，]$/.test(last);
+            out += (hard && /^[A-Z\u4e00-\u9fff“"‘']/.test(curr) ? " " : joiner) + curr;
+          }
+          return out;
+        }).join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
       }
 
       function countMeta(text) {
@@ -142,6 +194,35 @@
         hasPipeline = false;
         inputSnapshot = nextSnapshot == null ? inputEl.value : nextSnapshot;
         aiDecorations = [];
+        history = [];
+        updateUndoBtn();
+      }
+
+      function updateUndoBtn() {
+        $("undoBtn").disabled = history.length === 0;
+      }
+
+      function pushHistory() {
+        history.push({
+          output: outputEl.value,
+          aiDecorations: aiDecorations.slice(),
+          hasPipeline: hasPipeline
+        });
+        if (history.length > 80) history.shift();
+        updateUndoBtn();
+      }
+
+      function undo() {
+        if (!history.length) {
+          showToast("没有可撤回的操作");
+          return;
+        }
+        var prev = history.pop();
+        outputEl.value = prev.output;
+        aiDecorations = prev.aiDecorations.slice();
+        hasPipeline = prev.output !== "";
+        updateUndoBtn();
+        updateMeta();
       }
 
       function collapseBlankLines(text) {
@@ -149,23 +230,6 @@
       }
       function collapseSpaces(text) {
         return mapLines(text, function (line) { return trimLine(line.replace(/[ \t]+/g, " ")); });
-      }
-
-      function unwrapLines(text) {
-        return normalizeNewlines(text).split(/\n{2,}/).map(function (block) {
-          var rows = block.split("\n").map(function (l) { return l.replace(/[ \t]+$/g, ""); });
-          if (rows.length <= 1) return rows.join("");
-          var out = rows[0].replace(/^\s+/, "");
-          for (var i = 1; i < rows.length; i++) {
-            var prev = out, curr = rows[i].replace(/^\s+/, "");
-            if (!curr) continue;
-            if (looksLikeBlockStart(curr)) { out += "\n" + curr; continue; }
-            var joiner = /[-–—]$/.test(prev) ? "" : " ";
-            var hard = /[.!?…:;"'”’）)\]】》」』。！？：；、，]$/.test(prev);
-            out += (hard && /^[A-Z\u4e00-\u9fff“"‘']/.test(curr) ? " " : joiner) + curr;
-          }
-          return out;
-        }).join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
       }
 
       function peelLine(line) {
@@ -299,52 +363,88 @@
         return insertBreaksBefore(text, sequentialBreaks(findAll(text, re, toCand)));
       }
 
-      function splitBeforeMarks(text, re, keep) {
-        return insertBreaksBefore(text, findAll(text, re, function (m, src) {
-          return keep(m, src) ? m.index : null;
-        }));
+      function splitIfMany(text, re, keep) {
+        var idxs = findAll(text, re, function (m, src) {
+          var v = keep(m, src);
+          if (v === true) return m.index;
+          if (typeof v === "number" && v > 0) return v;
+          return null;
+        });
+        return idxs.length >= 2 ? insertBreaksBefore(text, idxs) : text;
       }
 
       function notAtLineStart(m, src) {
         return m.index > 0 && src.charAt(m.index - 1) !== "\n";
       }
 
+      // 空格、标点后可分段；英数和 . _ 中间禁止切开。
+      function isSoftBoundary(src, index) {
+        if (index <= 0) return false;
+        var prev = src.charAt(index - 1);
+        if (prev === "\n") return false;
+        return /[\s\u3000。！？!?…；;：:、，,）)\]】》」』"'”’]/.test(prev);
+      }
+
+      // 序号/小标题：允许紧贴中文（如「准备二、实施」），但不切开英文单词或数字。
+      function isListMarkerBoundary(src, index) {
+        if (index <= 0) return true;
+        var prev = src.charAt(index - 1);
+        if (prev === "\n") return false;
+        if (/[A-Za-z0-9._]/.test(prev)) return false;
+        return true;
+      }
+
       function smartSegment(text) {
         var t = normalizeNewlines(text).replace(/\t+/g, "\n");
+
         t = splitSequential(t, /[0-9]{1,2}[.．、)](?!\d)/g, function (m, src) {
+          if (!isListMarkerBoundary(src, m.index)) return null;
           if (m.index > 0 && /[\d.]/.test(src.charAt(m.index - 1))) return null;
           return { index: m.index, num: parseInt(m[0], 10) };
         });
-        t = splitSequential(t, /[（(]([0-9]{1,2}|[一二三四五六七八九十]{1,3})[）)]/g, function (m) {
+        t = splitSequential(t, /[（(]([0-9]{1,2}|[一二三四五六七八九十]{1,3})[）)]/g, function (m, src) {
+          if (!isListMarkerBoundary(src, m.index)) return null;
           var num = parseCnOrdinal(m[1]);
           return isNaN(num) ? null : { index: m.index, num: num };
         });
         t = splitSequential(t, /([一二三四五六七八九十]{1,3})[、.．]/g, function (m, src) {
           if (m.index > 0 && /[第其]/.test(src.charAt(m.index - 1))) return null;
+          if (!isListMarkerBoundary(src, m.index)) return null;
           var num = parseCnOrdinal(m[1]);
           return isNaN(num) ? null : { index: m.index, num: num };
         });
-        t = splitSequential(t, /第([一二三四五六七八九十百千零〇两]+|[0-9]{1,3})[章节条款项步点]?/g, function (m) {
+        t = splitSequential(t, /第([一二三四五六七八九十百千零〇两]+|[0-9]{1,3})(?![A-Za-z0-9])/g, function (m, src) {
+          if (!isListMarkerBoundary(src, m.index)) return null;
           var num = parseCnOrdinal(m[1]);
           return isNaN(num) ? null : { index: m.index, num: num };
         });
-        t = splitSequential(t, /其([一二三四五六七八九十])/g, function (m) {
-          var num = parseCnOrdinal(m[1]);
-          return isNaN(num) ? null : { index: m.index, num: num };
+
+        t = splitIfMany(t, /#{1,6}[ \t]+\S/g, function (m, src) {
+          return notAtLineStart(m, src) && isListMarkerBoundary(src, m.index);
         });
-        t = splitBeforeMarks(t, /[•●○▪►▶·]/g, notAtLineStart);
-        t = splitBeforeMarks(t, KEYWORD_RE, function (m, src) {
-          return notAtLineStart(m, src) && !(m.index > 0 && /[\u4e00-\u9fffA-Za-z]/.test(src.charAt(m.index - 1)));
+        t = splitIfMany(t, /[-*+•●○▪►▶]\s+\S/g, function (m, src) {
+          return notAtLineStart(m, src) && isSoftBoundary(src, m.index) ? m.index : null;
         });
+        t = splitIfMany(t, KEYWORD_RE, function (m, src) {
+          return notAtLineStart(m, src) && isSoftBoundary(src, m.index);
+        });
+
+        t = t.replace(/([A-Z\u4e00-\u9fff][^,\n;；，]{0,55}[:：])\s+(?=[A-Z\u4e00-\u9fff])/g, function (full, heading, offset, src) {
+          if (/\d[:：]\d/.test(heading)) return full;
+          if (offset > 0 && /[A-Za-z0-9]/.test(src.charAt(offset - 1))) return full;
+          if (offset > 0 && src.charAt(offset - 1) !== "\n" && !isSoftBoundary(src, offset) && !/[\u4e00-\u9fff]/.test(src.charAt(offset - 1))) return full;
+          if (!isTitleHeading(heading)) return full;
+          return heading + "\n";
+        });
+
         t = mapLines(t, function (line) {
-          var hits = findAll(line, /[A-Za-z\u4e00-\u9fff]{1,10}[：:]/g, function (m) { return m.index; });
+          var hits = findAll(line, /[A-Za-z\u4e00-\u9fff]{1,8}[：:]/g, function (m, src) {
+            if (m.index > 0 && !isSoftBoundary(src, m.index)) return null;
+            return m.index;
+          });
           return hits.length < 2 ? line : insertBreaksBefore(line, hits);
         });
-        t = mapLines(t, function (line) {
-          var parts = line.split(/[；;]/);
-          if (parts.length < 3) return line;
-          return parts.map(trimLine).filter(Boolean).join("\n");
-        });
+
         return mapLines(t, function (line) { return trimLine(compactSpaces(line)); }).replace(/\n{3,}/g, "\n\n").trim();
       }
 
@@ -375,6 +475,7 @@
           segment: smartSegment,
           all: function (t) { return pipelineAll(t, chained); }
         }[action];
+        pushHistory();
         outputEl.value = fn ? fn(source) : source;
         hasPipeline = true;
         inputSnapshot = inputEl.value;
@@ -406,6 +507,8 @@
       $("themeToggle").addEventListener("click", function () {
         applyTheme(root.classList.contains("dark") ? "light" : "dark");
       });
+
+      $("undoBtn").addEventListener("click", undo);
 
       $("clearBtn").addEventListener("click", function () {
         inputEl.value = "";
