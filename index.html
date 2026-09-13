@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Text Cleaner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Inter", "ui-sans-serif", "system-ui", "Segoe UI", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+            mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "Consolas", "monospace"],
+          },
+          boxShadow: {
+            soft: "0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06)",
+            "soft-dark": "0 1px 2px rgba(0, 0, 0, 0.24), 0 12px 32px rgba(0, 0, 0, 0.28)",
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    html { color-scheme: light; }
+    html.dark { color-scheme: dark; }
+    textarea { field-sizing: content; }
+    .pane-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+    .pane-scroll::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.45);
+      border-radius: 999px;
+    }
+    .dark .pane-scroll::-webkit-scrollbar-thumb {
+      background: rgba(71, 85, 105, 0.7);
+    }
+    #toast {
+      opacity: 0;
+      transform: translate(-50%, -8px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  </style>
+</head>
+<body class="h-full bg-[#f4f5f7] text-slate-800 antialiased dark:bg-[#0b0c0e] dark:text-zinc-100">
+  <div class="pointer-events-none fixed inset-0 overflow-hidden">
+    <div class="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-indigo-400/20 blur-3xl dark:bg-indigo-500/10"></div>
+    <div class="absolute -bottom-28 -right-16 h-80 w-80 rounded-full bg-violet-300/20 blur-3xl dark:bg-violet-600/10"></div>
+  </div>
+
+  <div class="relative mx-auto flex min-h-full max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
+    <header class="mb-6 flex items-start justify-between gap-4">
+      <div>
+        <div class="mb-2 inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-3 py-1 text-[11px] font-medium tracking-wide text-slate-500 shadow-soft backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-zinc-400 dark:shadow-none">
+          <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+          本地纯前端 · 无需安装
+        </div>
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white sm:text-3xl">Text Cleaner</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-zinc-400">极简文本清理助手 · 压缩空行、整理空格、合并断句、智能分段、去掉 AI 前缀符号</p>
+      </div>
+      <button
+        id="themeToggle"
+        type="button"
+        class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white/80 text-slate-600 shadow-soft transition hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:shadow-none dark:hover:bg-white/10"
+        aria-label="切换主题"
+        title="切换浅色 / 深色"
+      >
+        <svg id="iconSun" class="hidden h-5 w-5 dark:block" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25M12 18.75V21m9-9h-2.25M5.25 12H3m15.364 6.364-1.591-1.591M7.227 7.227 5.636 5.636m12.728 0-1.591 1.591M7.227 16.773l-1.591 1.591M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+        </svg>
+        <svg id="iconMoon" class="h-5 w-5 dark:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+        </svg>
+      </button>
+    </header>
+
+    <section class="mb-5 rounded-2xl border border-slate-200/80 bg-white/70 p-3 shadow-soft backdrop-blur dark:border-white/10 dark:bg-[#121417]/80 dark:shadow-soft-dark sm:p-4">
+      <div class="mb-2 flex items-center justify-between px-1">
+        <span class="text-xs font-medium uppercase tracking-wider text-slate-400 dark:text-zinc-500">处理操作</span>
+        <span class="text-xs text-slate-400 dark:text-zinc-500">连续点按钮会接着处理右侧结果，不用来回复制</span>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" data-action="blank" class="action-btn inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-px hover:border-slate-300 hover:shadow dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10">
+          去除多余空行
+        </button>
+        <button type="button" data-action="spaces" class="action-btn inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-px hover:border-slate-300 hover:shadow dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10">
+          去除多余空格
+        </button>
+        <button type="button" data-action="unwrap" class="action-btn inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-px hover:border-slate-300 hover:shadow dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10">
+          取消 / 合并换行
+        </button>
+        <button type="button" data-action="ai" class="action-btn inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-px hover:border-slate-300 hover:shadow dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10">
+          清理 AI 符号 / 序号
+        </button>
+        <button type="button" data-action="restore-ai" class="action-btn inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-px hover:border-slate-300 hover:shadow dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10">
+          恢复 AI 符号 / 序号
+        </button>
+        <button type="button" data-action="segment" class="action-btn inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-px hover:border-slate-300 hover:shadow dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10">
+          智能分段
+        </button>
+        <button type="button" data-action="all" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-zinc-200">
+          一键全部清理
+        </button>
+      </div>
+    </section>
+
+    <main class="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
+      <section class="flex min-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-soft dark:border-white/10 dark:bg-[#121417] dark:shadow-soft-dark">
+        <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/10">
+          <div>
+            <h2 class="text-sm font-semibold text-slate-800 dark:text-zinc-100">原始文本</h2>
+            <p id="inputMeta" class="text-xs text-slate-400 dark:text-zinc-500">0 字 · 0 行</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="pasteBtn" type="button" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10">从剪贴板粘贴</button>
+            <button id="clearBtn" type="button" class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-zinc-200">清空</button>
+          </div>
+        </div>
+        <textarea
+          id="inputText"
+          class="pane-scroll min-h-0 flex-1 resize-none bg-transparent px-4 py-3 font-mono text-[13px] leading-6 text-slate-700 outline-none placeholder:text-slate-400 dark:text-zinc-200 dark:placeholder:text-zinc-600"
+          placeholder="在此粘贴需要清理的文本…"
+          spellcheck="false"
+        ></textarea>
+      </section>
+
+      <section class="flex min-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-soft dark:border-white/10 dark:bg-[#121417] dark:shadow-soft-dark">
+        <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/10">
+          <div>
+            <h2 class="text-sm font-semibold text-slate-800 dark:text-zinc-100">处理后文本</h2>
+            <p id="outputMeta" class="text-xs text-slate-400 dark:text-zinc-500">0 字 · 0 行</p>
+          </div>
+          <button id="copyBtn" type="button" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-500">一键复制</button>
+        </div>
+        <textarea
+          id="outputText"
+          class="pane-scroll min-h-0 flex-1 resize-none bg-transparent px-4 py-3 font-mono text-[13px] leading-6 text-slate-700 outline-none placeholder:text-slate-400 dark:text-zinc-200 dark:placeholder:text-zinc-600"
+          placeholder="处理后的结果会显示在这里，也可以直接微调。"
+          spellcheck="false"
+        ></textarea>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite" class="pointer-events-none fixed left-1/2 top-6 z-50 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-soft dark:border-white/20 dark:bg-white dark:text-slate-900">已复制</div>
+
+  <script>
+    (function () {
+      const root = document.documentElement;
+      const inputEl = document.getElementById("inputText");
+      const outputEl = document.getElementById("outputText");
+      const inputMeta = document.getElementById("inputMeta");
+      const outputMeta = document.getElementById("outputMeta");
+      const toastEl = document.getElementById("toast");
+      let toastTimer;
+
+      function preferredTheme() {
+        const saved = localStorage.getItem("tc-theme");
+        if (saved === "dark" || saved === "light") return saved;
+        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        root.classList.toggle("dark", theme === "dark");
+        localStorage.setItem("tc-theme", theme);
+      }
+
+      applyTheme(preferredTheme());
+
+      document.getElementById("themeToggle").addEventListener("click", function () {
+        applyTheme(root.classList.contains("dark") ? "light" : "dark");
+      });
+
+      function normalizeNewlines(text) {
+        return String(text || "").replace(/\r\n?/g, "\n");
+      }
+
+      function countMeta(text) {
+        const t = normalizeNewlines(text);
+        const chars = t.length;
+        const lines = t === "" ? 0 : t.split("\n").length;
+        return chars + " 字 · " + lines + " 行";
+      }
+
+      function updateMeta() {
+        inputMeta.textContent = countMeta(inputEl.value);
+        outputMeta.textContent = countMeta(outputEl.value);
+      }
+
+      function showToast(message) {
+        toastEl.textContent = message;
+        toastEl.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () {
+          toastEl.classList.remove("show");
+        }, 2000);
+      }
+
+      function collapseBlankLines(text) {
+        return normalizeNewlines(text)
+          .split("\n")
+          .filter(function (line) {
+            return line.replace(/[ \t\u3000]/g, "") !== "";
+          })
+          .join("\n")
+          .trim();
+      }
+
+      function collapseSpaces(text) {
+        return normalizeNewlines(text)
+          .split("\n")
+          .map(function (line) {
+            return line.replace(/[ \t]+/g, " ").replace(/^\s+|\s+$/g, "");
+          })
+          .join("\n")
+          .replace(/[ \t]+\n/g, "\n");
+      }
+
+      function isHardBreakEnd(line) {
+        return /[.!?…:;"'”’）)\]】》」』]$/.test(line) || /[。！？：；、，]$/.test(line);
+      }
+
+      function looksLikeBlockStart(line) {
+        return /^(#{1,6}\s|[-*+•●○▪►▶]\s|\d+[.)、]\s|[（(]\d+[）)]\s|>\s|```)/.test(line);
+      }
+
+      function unwrapLines(text) {
+        const blocks = normalizeNewlines(text).split(/\n{2,}/);
+        return blocks
+          .map(function (block) {
+            const lines = block.split("\n").map(function (l) { return l.replace(/[ \t]+$/g, ""); });
+            if (lines.length <= 1) return lines.join("");
+            var out = lines[0].replace(/^\s+/, "");
+            for (var i = 1; i < lines.length; i++) {
+              var prev = out;
+              var curr = lines[i].replace(/^\s+/, "");
+              if (!curr) continue;
+              if (looksLikeBlockStart(curr)) {
+                out += "\n" + curr;
+                continue;
+              }
+              var joiner = /[-–—]$/.test(prev) ? "" : " ";
+              if (isHardBreakEnd(prev) && /^[A-Z\u4e00-\u9fff“"‘']/.test(curr)) {
+                out += " " + curr;
+              } else {
+                out += joiner + curr;
+              }
+            }
+            return out;
+          })
+          .join("\n\n")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+      }
+
+      var PREFIX_RES = [
+        /^(#{1,6}\s+)/,
+        /^(>\s?)/,
+        /^([-*+•●○▪►▶·]\s+)/,
+        /^(\[[ xX]\]\s+)/,
+        /^(?:第?[0-9０-９]+|[ivxlcdmIVXLCDM]+)[.)、]\s*/,
+        /^[（(][0-9０-９]+[）)]\s*/,
+        /^[A-Za-z][.)]\s*/,
+        /^[一二三四五六七八九十百千]+[、.．]\s*/,
+      ];
+
+      function peelLine(line) {
+        var leadWs = (line.match(/^[ \t\u3000]*/) || [""])[0];
+        var s = line.slice(leadWs.length);
+        var prefix = "";
+        var guard = 0;
+        while (guard++ < 8) {
+          var hit = null;
+          for (var i = 0; i < PREFIX_RES.length; i++) {
+            var m = s.match(PREFIX_RES[i]);
+            if (m) {
+              hit = m[0];
+              break;
+            }
+          }
+          if (!hit) break;
+          prefix += hit;
+          s = s.slice(hit.length);
+        }
+        var wrapOpen = "";
+        var wrapClose = "";
+        var wrapped = s.match(/^\*\*(.+?)\*\*\s*$/) || s.match(/^__(.+?)__\s*$/) || s.match(/^`(.+?)`\s*$/);
+        if (wrapped) {
+          if (s.charAt(0) === "*") { wrapOpen = "**"; wrapClose = "**"; }
+          else if (s.charAt(0) === "_") { wrapOpen = "__"; wrapClose = "__"; }
+          else { wrapOpen = "`"; wrapClose = "`"; }
+          s = wrapped[1];
+        }
+        return { leadWs: leadWs, prefix: prefix, wrapOpen: wrapOpen, wrapClose: wrapClose, body: s };
+      }
+
+      function stripLinePrefix(line) {
+        return peelLine(line).body;
+      }
+
+      var aiDecorations = [];
+
+      function rememberAiDecorations(text) {
+        aiDecorations = normalizeNewlines(text).split("\n").map(peelLine).filter(function (d) {
+          return d.body.replace(/\s+/g, "") !== "" && (d.prefix || d.wrapOpen);
+        });
+      }
+
+      function normalizeCompare(s) {
+        return String(s || "").replace(/\s+/g, " ").trim();
+      }
+
+      function restoreAiMarkers(text) {
+        var lines = normalizeNewlines(text).split("\n");
+        var pool = aiDecorations.slice();
+        var used = 0;
+        var restored = lines.map(function (line) {
+          var peeled = peelLine(line);
+          if (peeled.prefix || peeled.wrapOpen) return line;
+          var key = normalizeCompare(line);
+          if (!key) return line;
+          var idx = -1;
+          for (var i = 0; i < pool.length; i++) {
+            if (pool[i] && normalizeCompare(pool[i].body) === key) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx < 0) return line;
+          var d = pool[idx];
+          pool[idx] = null;
+          used += 1;
+          return d.leadWs + d.prefix + d.wrapOpen + line.replace(/^[ \t\u3000]+/, "") + d.wrapClose;
+        });
+        if (used > 0) return restored.join("\n");
+        var n = 1;
+        return lines.map(function (line) {
+          if (!line.trim()) return line;
+          if (looksLikeBlockStart(line.replace(/^\s+/, ""))) return line;
+          return n++ + ". " + line.replace(/^\s+/, "");
+        }).join("\n");
+      }
+
+      function cleanAiMarkers(text) {
+        var cleaned = normalizeNewlines(text)
+          .split("\n")
+          .map(stripLinePrefix)
+          .join("\n");
+        cleaned = cleaned.replace(/\*\*(.+?)\*\*/g, "$1");
+        cleaned = cleaned.replace(/__(.+?)__/g, "$1");
+        cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
+        cleaned = cleaned.replace(/^[ \t]*[-*]{3,}[ \t]*$/gm, "");
+        return cleaned.replace(/\n{3,}/g, "\n\n").trim();
+      }
+
+      var CN_NUM = {
+        零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5,
+        六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
+      };
+
+      function parseCnOrdinal(raw) {
+        if (!raw) return NaN;
+        if (/^[0-9０-９]+$/.test(raw)) return parseInt(raw.replace(/[０-９]/g, function (d) {
+          return String(d.charCodeAt(0) - 0xFF10);
+        }), 10);
+        if (raw === "十") return 10;
+        if (raw.length === 2 && raw[0] === "十") return 10 + (CN_NUM[raw[1]] || 0);
+        if (raw.length === 2 && raw[1] === "十") return (CN_NUM[raw[0]] || 0) * 10;
+        if (raw.length === 3 && raw[1] === "十") return (CN_NUM[raw[0]] || 0) * 10 + (CN_NUM[raw[2]] || 0);
+        if (raw.length === 1 && CN_NUM[raw] != null) return CN_NUM[raw];
+        var n = 0;
+        for (var i = 0; i < raw.length; i++) {
+          if (CN_NUM[raw[i]] == null) return NaN;
+          n = n * 10 + CN_NUM[raw[i]];
+        }
+        return n || NaN;
+      }
+
+      function insertBreaksBefore(text, indexes) {
+        if (!indexes.length) return text;
+        var uniq = {};
+        indexes.forEach(function (i) { if (i > 0) uniq[i] = true; });
+        var out = "";
+        for (var p = 0; p < text.length; p++) {
+          if (uniq[p]) {
+            out = out.replace(/[ \t\u3000]+$/, "");
+            if (out.length && out[out.length - 1] !== "\n") out += "\n";
+          }
+          out += text[p];
+        }
+        return out;
+      }
+
+      function sequentialBreaks(candidates) {
+        var marks = [];
+        var i = 0;
+        while (i < candidates.length) {
+          var run = [candidates[i]];
+          var j = i + 1;
+          while (j < candidates.length && candidates[j].num === run[run.length - 1].num + 1) {
+            run.push(candidates[j]);
+            j++;
+          }
+          if (run.length >= 2) {
+            for (var k = 0; k < run.length; k++) marks.push(run[k].index);
+            i = j;
+          } else {
+            i += 1;
+          }
+        }
+        return marks;
+      }
+
+      function splitSequentialArabic(text) {
+        var candidates = [];
+        var re = /[0-9]{1,2}[.．、)](?!\d)/g;
+        var m;
+        while ((m = re.exec(text))) {
+          var idx = m.index;
+          if (idx > 0 && /[\d.]/.test(text.charAt(idx - 1))) continue;
+          candidates.push({ index: idx, num: parseInt(m[0], 10) });
+        }
+        return insertBreaksBefore(text, sequentialBreaks(candidates));
+      }
+
+      function splitParenNumbers(text) {
+        var candidates = [];
+        var re = /[（(]([0-9]{1,2}|[一二三四五六七八九十]{1,3})[）)]/g;
+        var m;
+        while ((m = re.exec(text))) {
+          var num = parseCnOrdinal(m[1]);
+          if (!isNaN(num)) candidates.push({ index: m.index, num: num });
+        }
+        return insertBreaksBefore(text, sequentialBreaks(candidates));
+      }
+
+      function splitCnEnumerators(text) {
+        var candidates = [];
+        var re = /([一二三四五六七八九十]{1,3})[、.．]/g;
+        var m;
+        while ((m = re.exec(text))) {
+          var idx = m.index;
+          if (idx > 0 && /[第其]/.test(text.charAt(idx - 1))) continue;
+          var num = parseCnOrdinal(m[1]);
+          if (!isNaN(num)) candidates.push({ index: idx, num: num });
+        }
+        return insertBreaksBefore(text, sequentialBreaks(candidates));
+      }
+
+      function splitDiOrdinals(text) {
+        var candidates = [];
+        var re = /第([一二三四五六七八九十百千零〇两]+|[0-9]{1,3})[章节条款项步点]?/g;
+        var m;
+        while ((m = re.exec(text))) {
+          var num = parseCnOrdinal(m[1]);
+          if (!isNaN(num)) candidates.push({ index: m.index, num: num });
+        }
+        return insertBreaksBefore(text, sequentialBreaks(candidates));
+      }
+
+      function splitQiOrdinals(text) {
+        var candidates = [];
+        var re = /其([一二三四五六七八九十])/g;
+        var m;
+        while ((m = re.exec(text))) {
+          var num = parseCnOrdinal(m[1]);
+          if (!isNaN(num)) candidates.push({ index: m.index, num: num });
+        }
+        return insertBreaksBefore(text, sequentialBreaks(candidates));
+      }
+
+      function splitBullets(text) {
+        var marks = [];
+        var re = /[•●○▪►▶·]/g;
+        var m;
+        while ((m = re.exec(text))) {
+          if (m.index === 0 || text.charAt(m.index - 1) === "\n") continue;
+          marks.push(m.index);
+        }
+        return insertBreaksBefore(text, marks);
+      }
+
+      function splitKeywordPrefixes(text) {
+        var re = /(?:问题|答案|原因|措施|建议|备注|说明|结论|背景|目标|步骤|要点|标题|内容|方法|分析|总结|定义|特点|优点|缺点|注意|提示|案例|示例)[0-9]{0,2}[：:]|(?:\b(?:Step|STEP)\s*[0-9]{1,2}\b)|(?:\b[QA]\s*[0-9]{0,2}\s*[:.：、)])/g;
+        var marks = [];
+        var m;
+        while ((m = re.exec(text))) {
+          if (m.index === 0 || text.charAt(m.index - 1) === "\n") continue;
+          if (m.index > 0 && /[\u4e00-\u9fffA-Za-z]/.test(text.charAt(m.index - 1))) continue;
+          marks.push(m.index);
+        }
+        return insertBreaksBefore(text, marks);
+      }
+
+      function splitRepeatedLabels(text) {
+        return text.split("\n").map(function (line) {
+          var re = /[A-Za-z\u4e00-\u9fff]{1,10}[：:]/g;
+          var hits = [];
+          var m;
+          while ((m = re.exec(line))) hits.push(m.index);
+          if (hits.length < 2) return line;
+          return insertBreaksBefore(line, hits);
+        }).join("\n");
+      }
+
+      function splitDenseSemicolons(text) {
+        return text.split("\n").map(function (line) {
+          var parts = line.split(/[；;]/);
+          if (parts.length < 3) return line;
+          return parts.map(function (p) { return p.replace(/^\s+|\s+$/g, ""); }).filter(Boolean).join("\n");
+        }).join("\n");
+      }
+
+      function smartSegment(text) {
+        var t = normalizeNewlines(text).replace(/\t+/g, "\n");
+        t = splitSequentialArabic(t);
+        t = splitParenNumbers(t);
+        t = splitCnEnumerators(t);
+        t = splitDiOrdinals(t);
+        t = splitQiOrdinals(t);
+        t = splitBullets(t);
+        t = splitKeywordPrefixes(t);
+        t = splitRepeatedLabels(t);
+        t = splitDenseSemicolons(t);
+        return t
+          .split("\n")
+          .map(function (line) { return line.replace(/[ \t\u3000]+/g, " ").replace(/^\s+|\s+$/g, ""); })
+          .join("\n")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+      }
+
+      function pipelineAll(text, chained) {
+        var t = chained ? text : unwrapLines(text);
+        t = smartSegment(t);
+        rememberAiDecorations(t);
+        return collapseBlankLines(collapseSpaces(cleanAiMarkers(t)));
+      }
+
+      var hasPipeline = false;
+      var inputSnapshot = "";
+
+      function currentSource() {
+        if (hasPipeline && outputEl.value !== "") return outputEl.value;
+        return inputEl.value;
+      }
+
+      function run(action) {
+        var chained = hasPipeline && outputEl.value !== "";
+        var source = currentSource();
+        if (!source.trim()) {
+          showToast("请先粘贴或输入文本");
+          inputEl.focus();
+          return;
+        }
+        var result = source;
+        if (action === "blank") result = collapseBlankLines(source);
+        else if (action === "spaces") result = collapseSpaces(source);
+        else if (action === "unwrap") result = unwrapLines(source);
+        else if (action === "ai") {
+          rememberAiDecorations(source);
+          result = cleanAiMarkers(source);
+        }
+        else if (action === "restore-ai") result = restoreAiMarkers(source);
+        else if (action === "segment") result = smartSegment(source);
+        else if (action === "all") result = pipelineAll(source, chained);
+        outputEl.value = result;
+        hasPipeline = true;
+        inputSnapshot = inputEl.value;
+        updateMeta();
+      }
+
+      document.querySelectorAll("[data-action]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          run(btn.getAttribute("data-action"));
+        });
+      });
+
+      document.getElementById("clearBtn").addEventListener("click", function () {
+        inputEl.value = "";
+        outputEl.value = "";
+        hasPipeline = false;
+        inputSnapshot = "";
+        aiDecorations = [];
+        updateMeta();
+        inputEl.focus();
+      });
+
+      document.getElementById("pasteBtn").addEventListener("click", function () {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+          showToast("浏览器不支持读取剪贴板，请手动粘贴");
+          inputEl.focus();
+          return;
+        }
+        navigator.clipboard.readText().then(function (text) {
+          inputEl.value = text;
+          hasPipeline = false;
+          inputSnapshot = text;
+          aiDecorations = [];
+          updateMeta();
+          showToast("已从剪贴板粘贴");
+        }).catch(function () {
+          showToast("无法读取剪贴板，请允许权限或手动粘贴");
+          inputEl.focus();
+        });
+      });
+
+      document.getElementById("copyBtn").addEventListener("click", function () {
+        var text = outputEl.value;
+        if (!text) {
+          showToast("还没有可复制的内容");
+          return;
+        }
+        function done() { showToast("已复制"); }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(fallbackCopy);
+        } else {
+          fallbackCopy();
+        }
+        function fallbackCopy() {
+          outputEl.focus();
+          outputEl.select();
+          try {
+            document.execCommand("copy");
+            done();
+          } catch (e) {
+            showToast("复制失败，请手动选择文本");
+          }
+        }
+      });
+
+      inputEl.addEventListener("input", function () {
+        if (inputEl.value !== inputSnapshot) {
+          hasPipeline = false;
+          aiDecorations = [];
+        }
+        updateMeta();
+      });
+      outputEl.addEventListener("input", function () {
+        hasPipeline = outputEl.value !== "";
+        updateMeta();
+      });
+      updateMeta();
+    })();
+  </script>
+</body>
+</html>
